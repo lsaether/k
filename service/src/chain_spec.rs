@@ -154,6 +154,7 @@ fn staging_testnet_config_genesis() -> GenesisConfig {
 		curated_grandpa: Some(CuratedGrandpaConfig {
 			shuffle_period: 1024,
 		}),
+		claims: Some(Default::default()),
 	}
 }
 
@@ -299,6 +300,7 @@ pub fn testnet_genesis(
 		curated_grandpa: Some(CuratedGrandpaConfig {
 			shuffle_period: 1024,
 		}),
+		claims: Some(Default::default()),
 	}
 }
 

@@ -257,6 +257,11 @@ impl sudo::Trait for Runtime {
 	type Proposal = Call;
 }
 
+impl claims::Trait for Runtime {
+	type Event = Event;
+	type Currency = balances::Module<Self>;
+}
+
 construct_runtime!(
 	pub enum Runtime where
 		Block = Block,
@@ -280,6 +285,7 @@ construct_runtime!(
 		Parachains: parachains::{Module, Call, Storage, Config<T>, Inherent, Origin},
 		Slots: slots::{Module, Call, Storage, Event<T>},
 		Sudo: sudo,
+		Claims: claims,
 	}
 );
 
