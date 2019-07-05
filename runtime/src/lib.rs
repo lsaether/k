@@ -352,9 +352,14 @@ impl sudo::Trait for Runtime {
 	type Proposal = Call;
 }
 
+parameter_types!{
+	pub const Prefix: &'static [u8] = b"Pay KSMAs to the Kusama account:";
+}
+
 impl claims::Trait for Runtime {
 	type Event = Event;
 	type Currency = balances::Module<Self>;
+	type Prefix = Prefix;
 }
 
 construct_runtime!(
