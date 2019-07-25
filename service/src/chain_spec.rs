@@ -19,9 +19,9 @@
 use primitives::{ed25519, sr25519, Pair, crypto::UncheckedInto};
 use polkadot_primitives::{AccountId, SessionKey};
 use polkadot_runtime::{
-	GenesisConfig, CouncilSeatsConfig, DemocracyConfig, SystemConfig, AuraConfig,
-	SessionConfig, StakingConfig, TimestampConfig, BalancesConfig, Perbill, SessionKeys,
-	GrandpaConfig, SudoConfig, IndicesConfig, CuratedGrandpaConfig, StakerStatus,
+	GenesisConfig, CouncilConfig, ElectionsConfig, DemocracyConfig, SystemConfig, AuraConfig,
+	SessionConfig, StakingConfig, BalancesConfig, Perbill, SessionKeys, TechnicalCommitteeConfig,
+	GrandpaConfig, SudoConfig, IndicesConfig, CuratedGrandpaConfig, StakerStatus, WASM_BINARY, DAYS, DOLLARS,
 };
 use telemetry::TelemetryEndpoints;
 use hex_literal::hex;
@@ -62,22 +62,12 @@ fn staging_testnet_config_genesis() -> GenesisConfig {
 		hex!["8abecfa66704176be23df099bf441ea65444992d63b3ced3e76a17a4d38b0b0e"].unchecked_into(), // 5FCd9Y7RLNyxz5wnCAErfsLbXGG34L2BaZRHzhiJcMUMd5zd
 	)];
 
-	const MILLICENTS: u128 = 1_000_000_000;
-	const CENTS: u128 = 1_000 * MILLICENTS;    // assume this is worth about a cent.
-	const DOLLARS: u128 = 100 * CENTS;
-
-	const SECS_PER_BLOCK: u64 = 6;
-	const MINUTES: u64 = 60 / SECS_PER_BLOCK;
-	const HOURS: u64 = MINUTES * 60;
-	const DAYS: u64 = HOURS * 24;
-
 	const ENDOWMENT: u128 = 10_000_000 * DOLLARS;
 	const STASH: u128 = 100 * DOLLARS;
 
 	GenesisConfig {
 		system: Some(SystemConfig {
-			// TODO: Change after Substrate 1252 is fixed (https://github.com/paritytech/substrate/issues/1252)
-			code: include_bytes!("../../runtime/wasm/target/wasm32-unknown-unknown/release/polkadot_runtime.compact.wasm").to_vec(),
+			code: WASM_BINARY.to_vec(),
 			changes_trie_config: Default::default(),
 		}),
 		balances: Some(BalancesConfig {
@@ -93,10 +83,9 @@ fn staging_testnet_config_genesis() -> GenesisConfig {
 				.collect::<Vec<_>>(),
 		}),
 		session: Some(SessionConfig {
-			validators: initial_authorities.iter().map(|x| x.1.clone()).collect(),
 			keys: initial_authorities.iter().map(|x| (
-				x.1.clone(),
-				SessionKeys(x.2.clone(), x.2.clone()),
+				x.0.clone(),
+				SessionKeys { ed25519: x.2.clone() },
 			)).collect::<Vec<_>>(),
 		}),
 		staking: Some(StakingConfig {
@@ -108,17 +97,22 @@ fn staging_testnet_config_genesis() -> GenesisConfig {
 			offline_slash_grace: 4,
 			minimum_validator_count: 4,
 			stakers: initial_authorities.iter().map(|x| (x.0.clone(), x.1.clone(), STASH, StakerStatus::Validator)).collect(),
-			invulnerables: initial_authorities.iter().map(|x| x.1.clone()).collect(),
+			invulnerables: initial_authorities.iter().map(|x| x.0.clone()).collect(),
 		}),
 		democracy: Some(Default::default()),
-		council_seats: Some(CouncilSeatsConfig {
-			active_council: vec![],
+		collective_Instance1: Some(CouncilConfig {
+			members: vec![],
+			phantom: Default::default(),
+		}),
+		collective_Instance2: Some(TechnicalCommitteeConfig {
+			members: vec![],
+			phantom: Default::default(),
+		}),
+		elections: Some(ElectionsConfig {
+			members: vec![],
 			presentation_duration: 1 * DAYS,
 			term_duration: 28 * DAYS,
 			desired_seats: 0,
-		}),
-		timestamp: Some(TimestampConfig {
-			minimum_period: SECS_PER_BLOCK / 2, // due to the nature of aura the slots are 2*period
 		}),
 		sudo: Some(SudoConfig {
 			key: endowed_accounts[0].clone(),
@@ -198,14 +192,14 @@ pub fn testnet_genesis(
 		]
 	});
 
-	const STASH: u128 = 1 << 20;
-	const ENDOWMENT: u128 = 1 << 20;
-	let council_desired_seats = (endowed_accounts.len() / 2 - initial_authorities.len()) as u32;
+	const ENDOWMENT: u128 = 10_000_000 * DOLLARS;
+	const STASH: u128 = 100 * DOLLARS;
+
+	let desired_seats = (endowed_accounts.len() / 2 - initial_authorities.len()) as u32;
 
 	GenesisConfig {
 		system: Some(SystemConfig {
-			// TODO: Change after Substrate 1252 is fixed (https://github.com/paritytech/substrate/issues/1252)
-			code: include_bytes!("../../runtime/wasm/target/wasm32-unknown-unknown/release/polkadot_runtime.compact.wasm").to_vec(),
+			code: WASM_BINARY.to_vec(),
 			changes_trie_config: Default::default(),
 		}),
 		indices: Some(IndicesConfig {
@@ -216,10 +210,9 @@ pub fn testnet_genesis(
 			vesting: vec![],
 		}),
 		session: Some(SessionConfig {
-			validators: initial_authorities.iter().map(|x| x.1.clone()).collect(),
 			keys: initial_authorities.iter().map(|x| (
-				x.1.clone(),
-				SessionKeys(x.2.clone(), x.2.clone()),
+				x.0.clone(),
+				SessionKeys { ed25519: x.2.clone() },
 			)).collect::<Vec<_>>(),
 		}),
 		staking: Some(StakingConfig {
@@ -233,23 +226,28 @@ pub fn testnet_genesis(
 			stakers: initial_authorities.iter()
 				.map(|x| (x.0.clone(), x.1.clone(), STASH, StakerStatus::Validator))
 				.collect(),
-			invulnerables: initial_authorities.iter().map(|x| x.1.clone()).collect(),
+			invulnerables: initial_authorities.iter().map(|x| x.0.clone()).collect(),
 		}),
 		democracy: Some(DemocracyConfig::default()),
-		council_seats: Some(CouncilSeatsConfig {
-			active_council: endowed_accounts.iter()
+		collective_Instance1: Some(CouncilConfig {
+			members: vec![],
+			phantom: Default::default(),
+		}),
+		collective_Instance2: Some(TechnicalCommitteeConfig {
+			members: vec![],
+			phantom: Default::default(),
+		}),
+		elections: Some(ElectionsConfig {
+			members: endowed_accounts.iter()
 				.filter(|&endowed| initial_authorities.iter()
 					.find(|&(_, controller, _)| controller == endowed)
 					.is_none()
 				).map(|a| (a.clone(), 1000000)).collect(),
 			presentation_duration: 10,
 			term_duration: 1000000,
-			desired_seats: council_desired_seats,
+			desired_seats: desired_seats,
 		}),
 		parachains: Some(Default::default()),
-		timestamp: Some(TimestampConfig {
-			minimum_period: 2,                    // 2*2=4 second block time.
-		}),
 		sudo: Some(SudoConfig {
 			key: root_key,
 		}),
@@ -279,7 +277,16 @@ fn development_config_genesis() -> GenesisConfig {
 
 /// Development config (single validator Alice)
 pub fn development_config() -> ChainSpec {
-	ChainSpec::from_genesis("Development", "dev", development_config_genesis, vec![], None, Some(DEFAULT_PROTOCOL_ID), None, None)
+	ChainSpec::from_genesis(
+		"Development",
+		"dev",
+		development_config_genesis,
+		vec![],
+		None,
+		Some(DEFAULT_PROTOCOL_ID),
+		None,
+		None,
+	)
 }
 
 fn local_testnet_genesis() -> GenesisConfig {
@@ -295,5 +302,14 @@ fn local_testnet_genesis() -> GenesisConfig {
 
 /// Local testnet config (multivalidator Alice + Bob)
 pub fn local_testnet_config() -> ChainSpec {
-	ChainSpec::from_genesis("Local Testnet", "local_testnet", local_testnet_genesis, vec![], None, Some(DEFAULT_PROTOCOL_ID), None, None)
+	ChainSpec::from_genesis(
+		"Local Testnet",
+		"local_testnet",
+		local_testnet_genesis,
+		vec![],
+		None,
+		Some(DEFAULT_PROTOCOL_ID),
+		None,
+		None,
+	)
 }

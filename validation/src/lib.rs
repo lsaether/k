@@ -75,6 +75,7 @@ pub use self::shared_table::{
 	SharedTable, ParachainWork, PrimedParachainWork, Validated, Statement, SignedStatement,
 	GenericStatement,
 };
+pub use parachain::wasm_executor::{run_worker as run_validation_worker};
 
 mod attestation_service;
 mod dynamic_inclusion;
@@ -147,6 +148,7 @@ pub trait Network {
 		&self,
 		table: Arc<SharedTable>,
 		authorities: &[SessionKey],
+		exit: exit_future::Exit,
 	) -> Self::BuildTableRouter;
 }
 
@@ -313,11 +315,14 @@ impl<C, N, P> ParachainValidation<C, N, P> where
 		let (group_info, local_duty) = make_group_info(
 			duty_roster,
 			&authorities,
-			sign_with.public().into(),
+			sign_with.public(),
 		)?;
 
-		info!("Starting parachain attestation session on top of parent {:?}. Local parachain duty is {:?}",
-			parent_hash, local_duty.validation);
+		info!(
+			"Starting parachain attestation session on top of parent {:?}. Local parachain duty is {:?}",
+			parent_hash,
+			local_duty.validation,
+		);
 
 		let active_parachains = self.client.runtime_api().active_parachains(&id)?;
 
@@ -331,25 +336,23 @@ impl<C, N, P> ParachainValidation<C, N, P> where
 			self.extrinsic_store.clone(),
 			max_block_data_size,
 		));
+
+		let (_drop_signal, exit) = exit_future::signal();
+
 		let router = self.network.communication_for(
 			table.clone(),
 			&authorities,
+			exit.clone(),
 		);
 
-		let drop_signal = match local_duty.validation {
-			Chain::Parachain(id) => Some(self.launch_work(
-				parent_hash,
-				id,
-				router,
-				max_block_data_size,
-			)),
-			Chain::Relay => None,
-		};
+		if let Chain::Parachain(id) = local_duty.validation {
+			self.launch_work(parent_hash, id, router, max_block_data_size, exit);
+		}
 
 		let tracker = Arc::new(AttestationTracker {
 			table,
 			started: Instant::now(),
-			_drop_signal: drop_signal
+			_drop_signal,
 		});
 
 		live_instances.insert(parent_hash, tracker.clone());
@@ -369,10 +372,10 @@ impl<C, N, P> ParachainValidation<C, N, P> where
 		validation_para: ParaId,
 		build_router: N::BuildTableRouter,
 		max_block_data_size: Option<u64>,
-	) -> exit_future::Signal {
+		exit: exit_future::Exit,
+	) {
 		use extrinsic_store::Data;
 
-		let (signal, exit) = exit_future::signal();
 		let (collators, client) = (self.collators.clone(), self.client.clone());
 		let extrinsic_store = self.extrinsic_store.clone();
 
@@ -428,16 +431,15 @@ impl<C, N, P> ParachainValidation<C, N, P> where
 			.then(|_| Ok(()));
 
 		// spawn onto thread pool.
-		if let Err(_) = self.handle.execute(Box::new(cancellable_work)) {
+		if self.handle.execute(Box::new(cancellable_work)).is_err() {
 			error!("Failed to spawn cancellable work task");
 		}
-		signal
 	}
 }
 
 /// Parachain validation for a single block.
 struct AttestationTracker {
-	_drop_signal: Option<exit_future::Signal>,
+	_drop_signal: exit_future::Signal,
 	table: Arc<SharedTable>,
 	started: Instant,
 }
@@ -449,7 +451,7 @@ pub struct ProposerFactory<C, N, P, SC, TxApi: PoolChainApi> {
 	key: Arc<ed25519::Pair>,
 	_service_handle: ServiceHandle,
 	aura_slot_duration: SlotDuration,
-	select_chain: SC,
+	_select_chain: SC,
 	max_block_data_size: Option<u64>,
 }
 
@@ -468,7 +470,7 @@ impl<C, N, P, SC, TxApi> ProposerFactory<C, N, P, SC, TxApi> where
 	/// Create a new proposer factory.
 	pub fn new(
 		client: Arc<P>,
-		select_chain: SC,
+		_select_chain: SC,
 		network: N,
 		collators: C,
 		transaction_pool: Arc<Pool<TxApi>>,
@@ -489,7 +491,7 @@ impl<C, N, P, SC, TxApi> ProposerFactory<C, N, P, SC, TxApi> where
 
 		let service_handle = crate::attestation_service::start(
 			client,
-			select_chain.clone(),
+			_select_chain.clone(),
 			parachain_validation.clone(),
 			thread_pool,
 			key.clone(),
@@ -503,7 +505,7 @@ impl<C, N, P, SC, TxApi> ProposerFactory<C, N, P, SC, TxApi> where
 			key,
 			_service_handle: service_handle,
 			aura_slot_duration,
-			select_chain,
+			_select_chain,
 			max_block_data_size,
 		}
 	}
@@ -544,7 +546,7 @@ impl<C, N, P, SC, TxApi> consensus::Environment<Block> for ProposerFactory<C, N,
 			parent_id,
 			parent_number: parent_header.number,
 			transaction_pool: self.transaction_pool.clone(),
-			slot_duration: self.aura_slot_duration.clone(),
+			slot_duration: self.aura_slot_duration,
 		})
 	}
 }
